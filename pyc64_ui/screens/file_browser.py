@@ -52,8 +52,9 @@ class FileBrowser(ModalScreen):
         align: center middle;
     }
     #browser-box {
-        width: 70;
-        height: 80%;
+        width: 80%;
+        height: 85%;
+        max-width: 90;
         border: thick $primary;
         background: $surface;
     }
@@ -81,7 +82,7 @@ class FileBrowser(ModalScreen):
     }
     #browser-footer {
         height: 3;
-        padding: 0 1;
+        padding: 0 2;
         background: $primary-background;
     }
     ListItem {
@@ -89,13 +90,6 @@ class FileBrowser(ModalScreen):
     }
     ListItem > Label {
         width: 1fr;
-    }
-    .file-name {
-        color: $text;
-    }
-    .file-detail {
-        color: $text-muted;
-        text-align: right;
     }
     """
 
@@ -119,7 +113,6 @@ class FileBrowser(ModalScreen):
                     yield Static(EXT_LABEL[m], classes='tab-btn')
             yield ListView(id='file-list')
             yield Static('', id='browser-footer')
-        yield Footer()
 
     def on_mount(self) -> None:
         self._refresh()
@@ -151,40 +144,46 @@ class FileBrowser(ModalScreen):
             btn.update(f'{EXT_LABEL[m]} ({count})')
 
     def _update_footer(self) -> None:
-        path = DIRS[self.mode] / '...'
+        path = DIRS[self.mode]
         self.query_one('#browser-footer', Static).update(
-            f'[dim]{DIRS[self.mode]}[/]'
+            f'[dim]{path}[/]'
         )
 
-    def action_select(self) -> None:
+    def _selected_path(self) -> Path | None:
         lv = self.query_one('#file-list', ListView)
         item = lv.highlighted_child
         if item is None:
-            return
+            return None
         label = item.query(Label).first()
         text = label.renderable if hasattr(label, 'renderable') else str(label)
         fname = text.split('[')[2].split(']')[0] if '[' in text else ''
         if not fname or fname == '(no files)':
-            return
-        path = DIRS[self.mode] / fname
-        if path.exists():
+            return None
+        return DIRS[self.mode] / fname
+
+    def action_select(self) -> None:
+        path = self._selected_path()
+        if path and path.exists():
             self.dismiss(('open', path))
 
     def action_delete(self) -> None:
-        lv = self.query_one('#file-list', ListView)
-        item = lv.highlighted_child
-        if item is None:
+        path = self._selected_path()
+        if not path or not path.exists():
             return
-        label = item.query(Label).first()
-        text = label.renderable if hasattr(label, 'renderable') else str(label)
-        fname = text.split('[')[2].split(']')[0] if '[' in text else ''
-        if not fname or fname == '(no files)':
-            return
-        path = DIRS[self.mode] / fname
-        if path.exists():
-            path.unlink()
-            self._refresh()
-            self.notify(f'Deleted: {fname}')
+
+        def confirm(confirmed):
+            if confirmed:
+                path.unlink()
+                self._refresh()
+                self.notify(f'Deleted: {path.name}')
+
+        self.app.confirm(
+            f'Delete [bold]{path.name}[/]?',
+            cancel_button='Cancel',
+            confirm_button='Delete',
+        ).add_done_callback(
+            lambda f: confirm(f.result()) if f.result() is not None else None
+        )
 
     def action_next_tab(self) -> None:
         idx = MODE_TAB.index(self.mode)
@@ -200,4 +199,4 @@ class FileBrowser(ModalScreen):
 def _fmt_size(n: int) -> str:
     if n < 1024:
         return f'{n}B'
-    return f'{n/1024:.1f}K'
+    return f'{n / 1024:.1f}K'

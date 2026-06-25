@@ -36,38 +36,8 @@ class PYC64App(App):
     Screen {
         background: $surface;
     }
-    #editor-panel {
-        width: 50%;  height: 100%;
-        border-right: solid $primary;
-    }
-    #output-panel {
-        width: 50%;  height: 100%;
-    }
-    #source-label {
-        padding: 0 1;
-        background: $primary-background;
-        color: $primary;
-        text-style: bold;
-    }
-    #editor {
-        height: 1fr;
-    }
-    #tabs {
-        height: 3fr;
-    }
-    #errors {
-        height: 1fr;
-        border-top: solid $error;
-        padding: 1;
-    }
     #about-content {
         padding: 2 4;
-    }
-    TabPane {
-        padding: 1;
-    }
-    HexViewer, ListingView {
-        min-height: 3;
     }
     """
 

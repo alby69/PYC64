@@ -19,6 +19,10 @@ ABOUT_TEXT = """# PYC64 — Python-to-C64 Cross-Compiler & 6502 Assembler
 | `Ctrl+O` | File browser (sorgenti + output) |
 | `Ctrl+Q` | Esci |
 | `F1` | Questo help |
+| `Ctrl+←` | Restringe pannello editor |
+| `Ctrl+→` | Allarga pannello editor |
+| `Ctrl+↑` | Allarga pannello output (tabs) |
+| `Ctrl+↓` | Allarga pannello errori |
 | `Enter` | Apri file selezionato |
 | `Del` | Cancella file selezionato |
 | `←` `→` | Cambia categoria file |

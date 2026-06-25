@@ -380,10 +380,8 @@ class CodeGenerator:
 
         if name in ('print_at',):
             if len(args) >= 2:
-                self._emit_expr_to_a(args[0])
-                self.e.imp('TAX', 'col -> X')
-                self._emit_expr_to_a(args[1])
-                self.e.imp('TAY', 'row -> Y')
+                self._emit_expr_to_x(args[0], 'col -> X')
+                self._emit_expr_to_y(args[1], 'row -> Y')
                 self.e.imp('CLC', 'PLOT set cursor')
                 self.e.jsr(0xFFF0, 'KERNAL PLOT')
             if len(args) >= 3:
@@ -534,6 +532,14 @@ class CodeGenerator:
 
         # fallback
         self._emit_expr_to_a(left)
+
+    def _emit_expr_to_x(self, node, comment=''):
+        self._emit_expr_to_a(node)
+        self.e.imp('TAX', comment)
+
+    def _emit_expr_to_y(self, node, comment=''):
+        self._emit_expr_to_a(node)
+        self.e.imp('TAY', comment)
 
     def get_bytecode(self):
         return self.e.buf

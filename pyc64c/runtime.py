@@ -71,17 +71,24 @@ def runtime_labels_and_bytes(base_addr):
     label('_pb_ones')
     b(0x69); b(0x0A)           # ADC #10 (restore)
     b(0x86); b(0xFF)           # STX $FF (tens digit)
-    # A now holds the ones digit
+    b(0x85); b(0xFB)           # STA $FB (save ones digit)
     # Print hundreds if non-zero
     b(0xA5); b(0xFE)           # LDA $FE
-    b(0xF0); b(0x05)           # BEQ _pb_pt
+    b(0xF0); b(0x05)           # BEQ _pb_tens
     b(0x18); b(0x69); b(0x30)  # CLC / ADC #$30 -> PETSCII '0'-'9'
     b(0x20); w(CHROUT)         # JSR $FFD2
-    label('_pb_pt')
-    b(0xA5); b(0xFF)           # LDA $FF (tens)
+    label('_pb_tens')
+    # Print tens only if hundreds was non-zero OR tens is non-zero
+    b(0xA5); b(0xFE)           # LDA $FE
+    b(0xD0); b(0x04)           # BNE _pb_do_tens
+    b(0xA5); b(0xFF)           # LDA $FF
+    b(0xF0); b(0x05)           # BEQ _pb_one
+    label('_pb_do_tens')
+    b(0xA5); b(0xFF)
     b(0x18); b(0x69); b(0x30)
     b(0x20); w(CHROUT)
-    b(0xA5); b(0xFD)           # LDA original
+    label('_pb_one')
+    b(0xA5); b(0xFB)           # LDA ones digit
     b(0x18); b(0x69); b(0x30)
     b(0x20); w(CHROUT)
     b(0x60)                     # RTS

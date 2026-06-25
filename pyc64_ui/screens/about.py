@@ -15,10 +15,13 @@ ABOUT_TEXT = """# PYC64 — Python-to-C64 Cross-Compiler & 6502 Assembler
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+S` | Compila |
-| `Ctrl+O` | Apri file |
+| `Ctrl+S` | Salva e compila |
+| `Ctrl+O` | File browser (sorgenti + output) |
 | `Ctrl+Q` | Esci |
 | `F1` | Questo help |
+| `Enter` | Apri file selezionato |
+| `Del` | Cancella file selezionato |
+| `←` `→` | Cambia categoria file |
 
 ## Pipeline
 
@@ -27,11 +30,13 @@ Source (.c64) → Lexer → Parser → CodeGen → PRG (.prg)
                                       └→ BASIC (.bas)
 ```
 
-## Componenti
+## Output directories
 
-- **pyc64c/** — compilatore Python→6502 core
-- **asm6502.py** — assembler 6502 standalone dual-pass
-- **run_c64.py** — CLI per compilazione
+| Cartella | Contenuto |
+|----------|-----------|
+| `output/basic/` | BASIC listing generati |
+| `output/asm/` | Sorgenti assembly salvati |
+| `output/prg/` | Binari PRG compilati |
 
 ## Licenza
 

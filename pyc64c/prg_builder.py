@@ -94,6 +94,8 @@ class PRGBuilder:
             'println': '_print_str',
             'wait': '_wait_frames',
             'wait_frames': '_wait_frames',
+            'memset': '_memset',
+            'memcpy': '_memcpy',
         }
         runtime_names = set()
         for builtin, rt in builtin_to_runtime.items():

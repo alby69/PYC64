@@ -126,4 +126,58 @@ def runtime_labels_and_bytes(base_addr):
     label('_mul_done')
     b(0x60)                     # RTS
 
+    # --- _memset: memset(dest:word, val:byte, count:word) ---
+    # $FB/$FC = dest, $FD = val, $02/$03 = count
+    label('_memset')
+    b(0xA5); b(0x02)           # LDA $02
+    b(0x05); b(0x03)           # ORA $03
+    b(0xF0); b(0x11)           # BEQ _ms_done
+    b(0xA0); b(0x00)           # LDY #0
+    b(0xA5); b(0xFD)           # LDA $FD (val)
+    label('_ms_loop')
+    b(0x91); b(0xFB)           # STA ($FB),Y
+    b(0xE6); b(0xFB)           # INC $FB
+    b(0xD0); b(0x02)           # BNE _ms_skip
+    b(0xE6); b(0xFC)           # INC $FC
+    label('_ms_skip')
+    b(0xA5); b(0x02)           # LDA $02 (count lo)
+    b(0xD0); b(0x02)           # BNE _ms_skip2
+    b(0xC6); b(0x03)           # DEC $03 (count hi)
+    label('_ms_skip2')
+    b(0xC6); b(0x02)           # DEC $02
+    b(0xA5); b(0x02)           # LDA $02
+    b(0x05); b(0x03)           # ORA $03
+    b(0xD0); b(0xEB)           # BNE _ms_loop
+    label('_ms_done')
+    b(0x60)                     # RTS
+
+    # --- _memcpy: memcpy(dest:word, src:word, count:word) ---
+    # $FB/$FC = dest, $FD/$FE = src, $02/$03 = count
+    label('_memcpy')
+    b(0xA5); b(0x02)           # LDA $02
+    b(0x05); b(0x03)           # ORA $03
+    b(0xF0); b(0x14)           # BEQ _mc_done
+    b(0xA0); b(0x00)           # LDY #0
+    label('_mc_loop')
+    b(0xB1); b(0xFD)           # LDA ($FD),Y
+    b(0x91); b(0xFB)           # STA ($FB),Y
+    b(0xE6); b(0xFB)           # INC $FB
+    b(0xD0); b(0x02)           # BNE _mc_skip
+    b(0xE6); b(0xFC)           # INC $FC
+    label('_mc_skip')
+    b(0xE6); b(0xFD)           # INC $FD
+    b(0xD0); b(0x02)           # BNE _mc_skip2
+    b(0xE6); b(0xFE)           # INC $FE
+    label('_mc_skip2')
+    b(0xA5); b(0x02)           # LDA $02
+    b(0xD0); b(0x02)           # BNE _mc_skip3
+    b(0xC6); b(0x03)           # DEC $03
+    label('_mc_skip3')
+    b(0xC6); b(0x02)           # DEC $02
+    b(0xA5); b(0x02)           # LDA $02
+    b(0x05); b(0x03)           # ORA $03
+    b(0xD0); b(0xE5)           # BNE _mc_loop
+    label('_mc_done')
+    b(0x60)                     # RTS
+
     return labels, bytes(buf)

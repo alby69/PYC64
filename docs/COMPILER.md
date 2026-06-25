@@ -28,6 +28,13 @@ The language is a subset of Python with explicit type annotations for variables.
 - `print(value)`: Output to screen.
 - `poke(address, value)`: Write byte to memory.
 - `peek(address)`: Read byte from memory.
+- `peek16(address)`: Read 16-bit word from memory.
+- `poke16(address, value)`: Write 16-bit word to memory.
+- `memset(address, value, count)`: Fill memory block with value.
+- `memcpy(dest, src, count)`: Copy memory block.
+- `sprite_enable(index, bool)`: Enable/disable sprite (0-7).
+- `sprite_pos(index, x, y)`: Set sprite position (X is 0-255 for now).
+- `sprite_color(index, color)`: Set sprite color.
 - `wait_frames(n)`: Pause for `n` video frames.
 - `clear_screen()`: Clear the PETSCII screen.
 

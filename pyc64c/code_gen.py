@@ -297,62 +297,32 @@ class CodeGenerator:
         args = s.get('args', [])
 
         if name in ('poke',):
-            # val
+            addr_val = None
+            if args and args[0]['k'] == 'Literal':
+                addr_val = args[0]['value']
+            byte_val = None
             if len(args) > 1 and args[1]['k'] == 'Literal':
-                self.e.imm('LDA', args[1]['value'] & 0xFF, f'poke val ${args[1]["value"]:02X}')
+                byte_val = args[1]['value']
+            if byte_val is not None:
+                self.e.imm('LDA', byte_val & 0xFF, f'poke val ${byte_val:02X}')
             else:
                 self._emit_expr_to_a(args[1])
-            # addr
-            if args[0]['k'] == 'Literal':
-                addr_val = args[0]['value']
+            if addr_val is not None:
                 if addr_val < 0x100:
                     self.e.zp('STA', addr_val & 0xFF, f'poke ${addr_val:04X}')
                 else:
                     self.e.abs('STA', addr_val & 0xFFFF, f'poke ${addr_val:04X}')
-            else:
-                self.e.zp('STA', 0xFD, 'poke tmp val')
-                self._emit_expr_to_word_zp(args[0], 0xFB, 'poke addr')
-                self.e.zp('LDA', 0xFD)
-                self.e.imm('LDY', 0)
-                self.e.iny('STA', 0xFB)
-            return
-
-        if name == 'poke16':
-            # addr, val
-            if args[1]['k'] == 'Literal':
-                v = args[1]['value']
-                self.e.imm('LDA', v & 0xFF)
-                if args[0]['k'] == 'Literal':
-                    self.e.abs('STA', args[0]['value'])
-                self.e.imm('LDA', (v >> 8) & 0xFF)
-                if args[0]['k'] == 'Literal':
-                    self.e.abs('STA', args[0]['value'] + 1)
             return
 
         if name in ('peek',):
-            if args[0]['k'] == 'Literal':
+            addr_val = None
+            if args and args[0]['k'] == 'Literal':
                 addr_val = args[0]['value']
+            if addr_val is not None:
                 if addr_val < 0x100:
                     self.e.zp('LDA', addr_val & 0xFF, f'peek ${addr_val:04X}')
                 else:
                     self.e.abs('LDA', addr_val & 0xFFFF, f'peek ${addr_val:04X}')
-            else:
-                self._emit_expr_to_word_zp(args[0], 0xFB, 'peek addr')
-                self.e.imm('LDY', 0)
-                self.e.iny('LDA', 0xFB)
-            return
-
-        if name == 'peek16':
-            # returns lo in A, but we don't handle 16-bit returns well yet
-            if args[0]['k'] == 'Literal':
-                addr_val = args[0]['value']
-                self.e.abs('LDA', addr_val, 'peek16 lo')
-                # we should probably store hi somewhere
-            else:
-                self._emit_expr_to_word_zp(args[0], 0xFB, 'peek16 addr')
-                self.e.imm('LDY', 0)
-                self.e.iny('LDA', 0xFB)
-                # hi is at Y=1
             return
 
         if name in ('print',):
@@ -420,74 +390,6 @@ class CodeGenerator:
                     s_val = text['value']
                     self.e.jsr('_print_str', f'print_at "{s_val}"')
                     self.e.data(list(s_val.encode('latin-1')) + [0], f'str "{s_val}"')
-                else:
-                    self._emit_expr_to_a(text)
-                    self.e.jsr('_print_byte', 'print_at byte')
-            return
-
-        if name == 'sprite_enable':
-            if len(args) >= 2:
-                idx_node = args[0]
-                en_node = args[1]
-                # for now assume literal index 0-7
-                if idx_node['k'] == 'Literal':
-                    bit = 1 << (idx_node['value'] & 7)
-                    self.e.abs('LDA', 0xD015, 'VIC-II sprite enable')
-                    if en_node['k'] == 'Literal' and en_node['value']:
-                        self.e.imm('ORA', bit, f'enable sprite {idx_node["value"]}')
-                    else:
-                        self._emit_expr_to_a(en_node)
-                        self.e.imm('CMP', 0)
-                        temp_lbl = self.e.uniq('_spen')
-                        self.e.branch('BEQ', temp_lbl)
-                        self.e.imm('LDA', bit)
-                        self.e.abs('ORA', 0xD015)
-                        self.e.abs('STA', 0xD015)
-                        # skip off
-                        self.e.jmp(self.e.uniq('_spend'))
-                        self.e.label(temp_lbl)
-                        self.e.imm('LDA', 0xFF ^ bit)
-                        self.e.abs('AND', 0xD015)
-                        self.e.abs('STA', 0xD015)
-                        self.e.label(self.e.uniq('_spend'))
-                        return
-                    self.e.abs('STA', 0xD015)
-            return
-
-        if name == 'sprite_pos':
-            if len(args) >= 3:
-                idx = args[0]['value'] if args[0]['k'] == 'Literal' else 0
-                self._emit_expr_to_a(args[1]) # X
-                self.e.abs('STA', 0xD000 + idx*2, f'sprite {idx} X')
-                self._emit_expr_to_a(args[2]) # Y
-                self.e.abs('STA', 0xD001 + idx*2, f'sprite {idx} Y')
-                # 9th bit of X is at $D010, ignored for now
-            return
-
-        if name == 'sprite_color':
-            if len(args) >= 2:
-                idx = args[0]['value'] if args[0]['k'] == 'Literal' else 0
-                self._emit_expr_to_a(args[1])
-                self.e.abs('STA', 0xD027 + idx, f'sprite {idx} color')
-            return
-
-        if name == 'memset':
-            if len(args) >= 3:
-                # dest, val, count
-                self._emit_expr_to_word_zp(args[0], 0xFB, 'memset dest')
-                self._emit_expr_to_a(args[1])
-                self.e.zp('STA', 0xFD, 'memset val')
-                self._emit_expr_to_word_zp(args[2], 0x02, 'memset count')
-                self.e.jsr('_memset', 'call memset')
-            return
-
-        if name == 'memcpy':
-            if len(args) >= 3:
-                # dest, src, count
-                self._emit_expr_to_word_zp(args[0], 0xFB, 'memcpy dest')
-                self._emit_expr_to_word_zp(args[1], 0xFD, 'memcpy src')
-                self._emit_expr_to_word_zp(args[2], 0x02, 'memcpy count')
-                self.e.jsr('_memcpy', 'call memcpy')
             return
 
     def _emit_expr_to_a(self, node):
@@ -636,34 +538,6 @@ class CodeGenerator:
     def _emit_expr_to_y(self, node, comment=''):
         self._emit_expr_to_a(node)
         self.e.imp('TAY', comment)
-
-    def _emit_expr_to_word_zp(self, node, zp, comment=''):
-        if node['k'] == 'Literal':
-            val = node['value']
-            self.e.imm('LDA', val & 0xFF, f'{comment} lo')
-            self.e.zp('STA', zp)
-            self.e.imm('LDA', (val >> 8) & 0xFF, f'{comment} hi')
-            self.e.zp('STA', zp + 1)
-        elif node['k'] == 'Ident':
-            var = self._var(node['name'])
-            if var:
-                if var['isZP']:
-                    self.e.zp('LDA', var['addr'])
-                    self.e.zp('STA', zp)
-                    self.e.zp('LDA', var['addr'] + 1)
-                    self.e.zp('STA', zp + 1)
-                else:
-                    addr = var.get('addr') or var.get('bss_label', 0)
-                    self.e.abs('LDA', addr)
-                    self.e.zp('STA', zp)
-                    self.e.abs('LDA', addr + 1)
-                    self.e.zp('STA', zp + 1)
-        else:
-            # Fallback for complex expressions - only 8-bit for now
-            self._emit_expr_to_a(node)
-            self.e.zp('STA', zp)
-            self.e.imm('LDA', 0)
-            self.e.zp('STA', zp + 1)
 
     def get_bytecode(self):
         return self.e.buf

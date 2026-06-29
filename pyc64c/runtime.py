@@ -6,6 +6,11 @@ def runtime_labels_and_bytes(base_addr):
 
     All offsets are relative to the runtime start (which gets appended
     after user code). Labels are resolved by the PRGBuilder.
+
+    ZP Usage:
+    $FB, $FC : Primary Word / Pointer (used for inputs and print_str)
+    $FD, $FE : Secondary Word / Temps
+    $FF      : Temp / Mask
     """
     buf = bytearray()
     labels = {}
@@ -17,8 +22,8 @@ def runtime_labels_and_bytes(base_addr):
     def label(name): labels[name] = len(buf)
 
     def jsr_internal(name):
-        fixups.append({'at': len(buf), 'label': name})
-        w(0)  # placeholder
+        fixups.append({'at': len(buf) + 1, 'label': name})
+        b(0x20); w(0) # JSR $0000 placeholder
 
     def build():
         nonlocal buf
@@ -157,34 +162,35 @@ def runtime_labels_and_bytes(base_addr):
         b(0x0A); b(0xA8)                   # ASL / TAY
         b(0x8A); b(0x99); w(0xD001)         # TXA / STA $D001,Y
         b(0xA5); b(0xFB); b(0x99); w(0xD000) # LDA $FB / STA $D000,Y
-        b(0x68); b(0x20); jsr_internal('_get_mask') # PLA / JSR _get_mask
-        b(0x85); b(0xFD)                   # STA $FD (mask)
+        b(0x68)                             # PLA (idx)
+        jsr_internal('_get_mask')           # Returns mask in A
+        b(0x85); b(0xFF)                   # STA $FF (mask)
         b(0xA5); b(0xFC); b(0xF0); b(0x0A)  # LDA $FC / BEQ _ssp_off
         # X > 255
-        b(0xAD); w(0xD010); b(0x05); b(0xFD) # LDA $D010 / ORA $FD
+        b(0xAD); w(0xD010); b(0x05); b(0xFF) # LDA $D010 / ORA $FF
         b(0x8D); w(0xD010); b(0x60)         # STA $D010 / RTS
         label('_ssp_off')
-        b(0xA5); b(0xFD); b(0x49); b(0xFF)  # LDA $FD / EOR #$FF
+        b(0xA5); b(0xFF); b(0x49); b(0xFF)  # LDA $FF / EOR #$FF
         b(0x2D); w(0xD010); b(0x8D); w(0xD010) # AND $D010 / STA $D010
         b(0x60)                             # RTS
 
         # --- _set_sprite_bit: A=idx, X=on, $FC/FD=reg_addr ---
         label('_set_sprite_bit')
         b(0x48)                             # PHA (idx)
-        b(0x20); jsr_internal('_get_mask') # JSR _get_mask
-        b(0x85); b(0xFE)                   # STA $FE (mask)
+        jsr_internal('_get_mask')           # Returns mask in A
+        b(0x85); b(0xFF)                   # STA $FF (mask)
         b(0x8A); b(0xF0); b(0x0E)           # TXA / BEQ _ssb_off
         # ON
         b(0xA0); b(0x00); b(0xB1); b(0xFC)  # LDY #0 / LDA ($FC),Y
-        b(0x05); b(0xFE)                   # ORA $FE
+        b(0x05); b(0xFF)                   # ORA $FF
         b(0x91); b(0xFC)                   # STA ($FC),Y
         b(0x68); b(0x60)                   # PLA / RTS
         label('_ssb_off')
         # OFF
-        b(0xA5); b(0xFE); b(0x49); b(0xFF)  # LDA $FE / EOR #$FF
-        b(0x85); b(0xFE)                   # STA $FE (inv mask)
+        b(0xA5); b(0xFF); b(0x49); b(0xFF)  # LDA $FF / EOR #$FF
+        b(0x85); b(0xFF)                   # STA $FF (inv mask)
         b(0xA0); b(0x00); b(0xB1); b(0xFC)  # LDY #0 / LDA ($FC),Y
-        b(0x25); b(0xFE)                   # AND $FE
+        b(0x25); b(0xFF)                   # AND $FF
         b(0x91); b(0xFC)                   # STA ($FC),Y
         b(0x68); b(0x60)                   # PLA / RTS
 
@@ -192,27 +198,27 @@ def runtime_labels_and_bytes(base_addr):
         label('_get_mask')
         b(0x48)                             # PHA
         b(0xA9); b(0x01)                   # LDA #1
-        b(0x85); b(0xFB)                   # STA $FB
+        b(0x85); b(0xFF)                   # STA $FF
         b(0x68); b(0xAA)                   # PLA / TAX
         b(0xF0); b(0x07)                   # BEQ _gm_done
         label('_gm_loop')
-        b(0x06); b(0xFB)                   # ASL $FB
+        b(0x06); b(0xFF)                   # ASL $FF
         b(0xCA); b(0xD0); b(0xFA)           # DEX / BNE _gm_loop
         label('_gm_done')
-        b(0xA5); b(0xFB)                   # LDA $FB
+        b(0xA5); b(0xFF)                   # LDA $FF
         b(0x60)                             # RTS
 
         # --- _set_sid_reg: A=voice, X=offset, Y=val ---
         label('_set_sid_reg')
-        b(0x85); b(0xFB)                   # STA $FB (voice)
-        b(0x86); b(0xFC)                   # STX $FC (offset)
-        b(0x84); b(0xFD)                   # STY $FD (val)
-        b(0xA9); b(0x07); b(0x85); b(0xFE) # LDA #7 / STA $FE
-        b(0xA5); b(0xFB); b(0xA6); b(0xFE) # LDA $FB / LDX $FE
-        b(0x20); jsr_internal('_mul_byte') # A = voice * 7
-        b(0x18); b(0x65); b(0xFC)           # CLC / ADC $FC
+        b(0x85); b(0xFD)                   # STA $FD (voice)
+        b(0x0A); b(0x0A); b(0x0A)           # ASL/ASL/ASL (v*8)
+        b(0x38); b(0xE5); b(0xFD)           # SEC / SBC $FD (v*7)
+        b(0x85); b(0xFD)                   # STA $FD (v*7)
+        b(0x8A); b(0x18); b(0x65); b(0xFD) # TXA / CLC / ADC $FD (offset)
         b(0xAA)                             # TAX
-        b(0xA5); b(0xFD)                   # LDA $FD (val)
+        b(0xA5); b(0xFD)                   # LDA $FD (clobber A with voice*7? No, need val from Y)
+        # Wait, I need val in A. Caller puts val in Y.
+        b(0x98)                             # TYA (val)
         b(0x9D); w(0xD400)                 # STA $D400,X
         b(0x60)                             # RTS
 

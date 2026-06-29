@@ -597,6 +597,25 @@ class CodeGenerator:
                 self.e.jsr('_set_sid_reg')
             return
 
+        if name == 'sid_clear':
+            # Fast clear with loop
+            self.e.imm('LDA', 0); self.e.imm('LDX', 24)
+            lbl_l = self.e.uniq('_sidc')
+            self.e.label(lbl_l); self.e.abs('STA', 0xD400, 'STA $D400,X? No, needs index')
+            # Wait, emitter supports abx
+            self.e.abx('STA', 0xD400); self.e.imp('DEX'); self.e.branch('BPL', lbl_l)
+            return
+
+        if name == 'vic_bank':
+            if args:
+                # bits 0-1 of $DD00. 11=bank0, 10=bank1, 01=bank2, 00=bank3. Pattern is 3-bank.
+                self._emit_expr_to_a(args[0]); self.e.zp('STA', 0xFB)
+                self.e.imm('LDA', 3); self.e.imp('SEC'); self.e.zp('SBC', 0xFB)
+                self.e.imm('AND', 0x03); self.e.zp('STA', 0xFB)
+                self.e.abs('LDA', 0xDD00); self.e.imm('AND', 0xFC); self.e.zp('ORA', 0xFB)
+                self.e.abs('STA', 0xDD00)
+            return
+
         if name == 'sid_filter':
             if len(args) >= 3:
                 # cutoff -> $FB/FC

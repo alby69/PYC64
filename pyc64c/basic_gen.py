@@ -219,6 +219,17 @@ class BASICGenerator:
             # mode also contains voices to filter in lower 4 bits
             self.add(f'POKE 54296,(PEEK(54296) AND 15) OR ({mode} AND 240)')
             self.add(f'POKE 54295,(PEEK(54295) AND 240) OR ({mode} AND 15)')
+        elif name == 'sid_clear':
+            self.add('FOR I=54272 TO 54296:POKE I,0:NEXT')
+        elif name == 'vic_bank':
+            bank = self._expr(args[0])
+            self.add(f'POKE 56576,(PEEK(56576) AND 252) OR (3-({bank} AND 3))')
+        elif name == 'screen_memory':
+            addr = self._expr(args[0])
+            self.add(f'POKE 53272,(PEEK(53272) AND 15) OR (({addr}/1024) AND 15)*16')
+        elif name == 'character_memory':
+            addr = self._expr(args[0])
+            self.add(f'POKE 53272,(PEEK(53272) AND 240) OR (({addr}/1024) AND 14)')
         elif name == 'sprite_collision_sprite':
             self.add('V=PEEK(53278)')
         elif name == 'sprite_collision_data':

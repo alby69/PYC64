@@ -40,7 +40,7 @@ def cmd_compile(args):
         from pyc64c.asm6502 import Asm6502
         asm = Asm6502()
         src = read_source(args.input)
-        errs = asm.assemble(src)
+        errs = asm.assemble(src, filepath=args.input)
         if errs:
             for e in errs:
                 print(f"[ASM ERROR] {e['msg']} (line {e.get('line',0)})", file=sys.stderr)
@@ -63,6 +63,9 @@ def cmd_compile(args):
         if result.parse_errors:
             for e in result.parse_errors:
                 print(f"[PARSER ERROR] {e['msg']} ({e.get('line',0)}:{e.get('col',0)})", file=sys.stderr)
+        if result.builder and result.builder.fixup_errs:
+            for e in result.builder.fixup_errs:
+                print(f"[BUILD ERROR] {e}", file=sys.stderr)
 
     if prg_data:
         prg_path = base + '.prg'
@@ -74,7 +77,7 @@ def cmd_compile(args):
         print(f"[SIZE]   {len(prg_data)} byte")
 
         # ASM hex dump
-        asm_path = base + '.asm'
+        asm_path = base + ('.lst' if ext == '.asm' else '.asm')
         with open(asm_path, 'w') as f:
             f.write(hex_dump(prg_data))
         print(f"[ASM]    {asm_path}")

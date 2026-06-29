@@ -48,9 +48,8 @@ class CodeEmitter:
         })
 
     def uniq(self, pfx='_L'):
-        n = self._uid
         self._uid += 1
-        return f'{pfx}{n}'
+        return f'{pfx}{self._uid}'
 
     def _get_op(self, mnem, mode):
         ops = OPS.get(mnem, {})
@@ -171,6 +170,10 @@ class CodeEmitter:
         self._b(op)
         self._b(v)
         self._li(a, [op, v], mnem, f'({hex2(v)}),Y', 'iny', comment)
+
+    def ind_y(self, mnem, zp_a, comment=''):
+        """Indirect Indexed: LDA ($FB),Y"""
+        return self.iny(mnem, zp_a, comment)
 
     def jsr(self, target, comment=''):
         a = self.addr()

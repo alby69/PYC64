@@ -352,6 +352,102 @@ class CodeGenerator:
             self.e.jsr('_cls', 'clear_screen')
             return
 
+        if name in ('memcpy',):
+            if len(args) >= 3:
+                # memcpy(dest, src, count)
+                self._emit_expr_to_a(args[1]) # src lo
+                self.e.zp('STA', 0xFB)
+                self._emit_expr_hi_to_a(args[1]) # src hi
+                self.e.zp('STA', 0xFC)
+
+                self._emit_expr_to_a(args[0]) # dest lo
+                self.e.zp('STA', 0xFD)
+                self._emit_expr_hi_to_a(args[0]) # dest hi
+                self.e.zp('STA', 0xFE)
+
+                self._emit_expr_to_a(args[2]) # count lo
+                self.e.zp('STA', 0x02)
+                self._emit_expr_hi_to_a(args[2]) # count hi
+                self.e.zp('STA', 0x03)
+
+                lbl_loop = self.e.uniq('_memcpy_lp')
+                lbl_done = self.e.uniq('_memcpy_done')
+                self.e.label(lbl_loop)
+                self.e.zp('LDA', 0x02)
+                self.e.zp('ORA', 0x03)
+                self.e.branch('BEQ', lbl_done)
+
+                self.e.imm('LDY', 0)
+                self.e.ind_y('LDA', 0xFB)
+                self.e.ind_y('STA', 0xFD)
+
+                # src++
+                lbl_mc_s_skip = self.e.uniq('_mc_s_skip')
+                self.e.zp('INC', 0xFB)
+                self.e.branch('BNE', lbl_mc_s_skip)
+                self.e.zp('INC', 0xFC)
+                self.e.label(lbl_mc_s_skip)
+                # dest++
+                lbl_mc_d_skip = self.e.uniq('_mc_d_skip')
+                self.e.zp('INC', 0xFD)
+                self.e.branch('BNE', lbl_mc_d_skip)
+                self.e.zp('INC', 0xFE)
+                self.e.label(lbl_mc_d_skip)
+
+                # count--
+                lbl_mc_dec = self.e.uniq('_mc_dec')
+                self.e.zp('LDA', 0x02)
+                self.e.branch('BNE', lbl_mc_dec)
+                self.e.zp('DEC', 0x03)
+                self.e.label(lbl_mc_dec)
+                self.e.zp('DEC', 0x02)
+
+                self.e.jmp(lbl_loop)
+                self.e.label(lbl_done)
+            return
+        if name in ('memset',):
+            if len(args) >= 3:
+                self._emit_expr_to_a(args[0]) # addr lo
+                self.e.zp('STA', 0xFB)
+                self._emit_expr_hi_to_a(args[0]) # addr hi
+                self.e.zp('STA', 0xFC)
+
+                self._emit_expr_to_a(args[1]) # val
+                self.e.zp('STA', 0xFD)
+
+                self._emit_expr_to_a(args[2]) # count lo
+                self.e.zp('STA', 0x02)
+                self._emit_expr_hi_to_a(args[2]) # count hi
+                self.e.zp('STA', 0x03)
+
+                u_lp = self.e.uniq('_ms_lp')
+                u_done = self.e.uniq('_ms_done')
+                u_skip = self.e.uniq('_ms_skip')
+                u_dec = self.e.uniq('_ms_dec')
+
+                self.e.label(u_lp)
+                self.e.zp('LDA', 0x02)
+                self.e.zp('ORA', 0x03)
+                self.e.branch('BEQ', u_done)
+
+                self.e.zp('LDA', 0xFD)
+                self.e.imm('LDY', 0)
+                self.e.ind_y('STA', 0xFB)
+
+                self.e.zp('INC', 0xFB)
+                self.e.branch('BNE', u_skip)
+                self.e.zp('INC', 0xFC)
+                self.e.label(u_skip)
+
+                self.e.zp('LDA', 0x02)
+                self.e.branch('BNE', u_dec)
+                self.e.zp('DEC', 0x03)
+                self.e.label(u_dec)
+                self.e.zp('DEC', 0x02)
+
+                self.e.jmp(u_lp)
+                self.e.label(u_done)
+            return
         if name in ('border_color',):
             if args:
                 self._emit_expr_to_a(args[0])
@@ -364,10 +460,79 @@ class CodeGenerator:
                 self.e.abs('STA', 0xD021, 'screen color')
             return
 
+        if name in ('text_color',):
+            if args:
+                self._emit_expr_to_a(args[0])
+                self.e.abs('STA', 0x0286, 'text color')
+            return
+
         if name in ('wait_frames',):
             if args:
                 self._emit_expr_to_a(args[0])
                 self.e.jsr('_wait_frames', 'wait frames')
+            return
+
+        if name in ('sprite_enable',):
+            if len(args) >= 2:
+                # index, on
+                # For now, simple implementation assuming index is literal
+                if args[0]['k'] == 'Literal':
+                    idx = args[0]['value'] & 7
+                    mask = 1 << idx
+                    self._emit_expr_to_a(args[1])
+                    lbl_off = self.e.uniq('_spr_off')
+                    lbl_done = self.e.uniq('_spr_done')
+                    self.e.imm('CMP', 0, 'on?')
+                    self.e.branch('BEQ', lbl_off)
+                    # ON: $D015 |= mask
+                    self.e.abs('LDA', 0xD015)
+                    self.e.imm('ORA', mask)
+                    self.e.abs('STA', 0xD015)
+                    self.e.jmp(lbl_done)
+                    self.e.label(lbl_off)
+                    # OFF: $D015 &= ~mask
+                    self.e.abs('LDA', 0xD015)
+                    self.e.imm('AND', (~mask) & 0xFF)
+                    self.e.abs('STA', 0xD015)
+                    self.e.label(lbl_done)
+            return
+
+        if name in ('sprite_pos',):
+            if len(args) >= 3:
+                # index, x(word), y(byte)
+                if args[0]['k'] == 'Literal':
+                    idx = args[0]['value'] & 7
+                    # Set Y
+                    self._emit_expr_to_a(args[2])
+                    self.e.abs('STA', 0xD001 + idx * 2, f'sprite{idx} y')
+                    # Set X lo
+                    self._emit_expr_to_a(args[1])
+                    self.e.abs('STA', 0xD000 + idx * 2, f'sprite{idx} x lo')
+                    # Set X hi (9th bit)
+                    self._emit_expr_hi_to_a(args[1])
+                    lbl_bit_off = self.e.uniq('_spr_xhi_off')
+                    lbl_bit_done = self.e.uniq('_spr_xhi_done')
+                    self.e.imm('CMP', 0)
+                    self.e.branch('BEQ', lbl_bit_off)
+                    # SET BIT
+                    self.e.abs('LDA', 0xD010)
+                    self.e.imm('ORA', 1 << idx)
+                    self.e.abs('STA', 0xD010)
+                    self.e.jmp(lbl_bit_done)
+                    self.e.label(lbl_bit_off)
+                    # CLEAR BIT
+                    self.e.abs('LDA', 0xD010)
+                    self.e.imm('AND', (~(1 << idx)) & 0xFF)
+                    self.e.abs('STA', 0xD010)
+                    self.e.label(lbl_bit_done)
+            return
+        if name in ('sprite_color',):
+            if len(args) >= 2:
+                # index, color
+                if args[0]['k'] == 'Literal':
+                    idx = args[0]['value'] & 7
+                    self._emit_expr_to_a(args[1])
+                    self.e.abs('STA', 0xD027 + idx, f'sprite{idx} color')
             return
 
         if name in ('sei',):
@@ -539,5 +704,26 @@ class CodeGenerator:
         self._emit_expr_to_a(node)
         self.e.imp('TAY', comment)
 
+
+    def _emit_expr_hi_to_a(self, node):
+        """Emit code to load the high byte of an expression into register A."""
+        if node['k'] == 'Literal':
+            val = node['value']
+            self.e.imm('LDA', (val >> 8) & 0xFF, f'lit hi ${val:04X}')
+        elif node['k'] == 'Ident':
+            var = self._var(node['name'])
+            if var:
+                if var['isZP']:
+                    self.e.zp('LDA', var['addr'] + 1, f'ld {node["name"]} hi')
+                else:
+                    addr = var.get('addr') or var.get('bss_label', 0)
+                    if isinstance(addr, str):
+                        self.e.abs('LDA', f'{addr}+1', f'ld {node["name"]} hi')
+                    else:
+                        self.e.abs('LDA', addr + 1, f'ld {node["name"]} hi')
+            else:
+                self.e.imm('LDA', 0, f'?{node["name"]} hi')
+        else:
+            self.e.imm('LDA', 0, f'hi {node["k"]}')
     def get_bytecode(self):
         return self.e.buf

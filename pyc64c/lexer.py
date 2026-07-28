@@ -216,6 +216,7 @@ class Lexer:
                 '(': TT.LPAREN, ')': TT.RPAREN,
                 '[': TT.LBRACK, ']': TT.RBRACK,
                 ',': TT.COMMA, '.': TT.DOT, ':': TT.COLON,
+                ';': TT.COLON,
             }
             if c in punct:
                 self.advance()

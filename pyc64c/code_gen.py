@@ -96,6 +96,8 @@ class CodeGenerator:
             self.e.imp('RTS', f"return from {self.cur_func['name'] if self.cur_func else '?'}")
         elif kind == 'Call':
             self._emit_call(s)
+        elif kind == 'MethodCall':
+            self._emit_method_call(s)
         elif kind == 'Break':
             if self.loop_stack:
                 self.e.jmp(self.loop_stack[-1]['end'], 'break')
@@ -126,14 +128,69 @@ class CodeGenerator:
                 self._st_var_byte(var, f'{s["name"]} = ...')
 
     def _emit_assign(self, s):
-        if self._is_16(s['target']) or self._is_32(s['target']):
-            self._emit_word_assign(s)
+        target = s['target']
+        if target['k'] == 'ArrayAccess':
+            if self._is_16(target):
+                self._emit_word_to_zp(s['value'], 0xFB)
+                self.e.zp('LDA', 0xFC); self.e.imp('PHA')
+                self.e.zp('LDA', 0xFB); self.e.imp('PHA')
+                self._emit_array_addr_to_fd_fe(target)
+                self.e.imm('LDY', 0)
+                self.e.imp('PLA'); self.e.iny('STA', 0xFD)
+                self.e.imp('INY')
+                self.e.imp('PLA'); self.e.iny('STA', 0xFD)
+            else:
+                self._emit_expr_to_a(s['value'])
+                self.e.imp('PHA')
+                self._emit_array_addr_to_fd_fe(target)
+                self.e.imm('LDY', 0)
+                self.e.imp('PLA')
+                self.e.iny('STA', 0xFD)
+        elif target['k'] == 'FieldAccess':
+            f_var = self._emit_field_var(target)
+            if f_var:
+                if self._is_16(target):
+                    self._emit_word_to_zp(s['value'], 0xFB)
+                    self.e.zp('LDA', 0xFB)
+                    self._st_var_byte(f_var, 'field lo')
+                    self.e.zp('LDA', 0xFC)
+                    if f_var['isZP']:
+                        self.e.zp('STA', f_var['addr'] + 1, 'field hi')
+                    else:
+                        addr = f_var.get('addr') or f_var.get('bss_label', 0)
+                        if isinstance(addr, str):
+                            self.e.abs('STA', f"{addr}+1", 'field hi')
+                        else:
+                            self.e.abs('STA', addr + 1, 'field hi')
+                else:
+                    self._emit_expr_to_a(s['value'])
+                    self._st_var_byte(f_var, 'field = ...')
+        elif target['k'] == 'UnaryOp' and target['op'] == '*':
+            if self._is_16(target):
+                self._emit_word_to_zp(s['value'], 0xFB)
+                self.e.zp('LDA', 0xFC); self.e.imp('PHA')
+                self.e.zp('LDA', 0xFB); self.e.imp('PHA')
+                self._emit_word_to_fd_fe(target['operand'])
+                self.e.imm('LDY', 0)
+                self.e.imp('PLA'); self.e.iny('STA', 0xFD)
+                self.e.imp('INY')
+                self.e.imp('PLA'); self.e.iny('STA', 0xFD)
+            else:
+                self._emit_expr_to_a(s['value'])
+                self.e.imp('PHA')
+                self._emit_word_to_fd_fe(target['operand'])
+                self.e.imm('LDY', 0)
+                self.e.imp('PLA')
+                self.e.iny('STA', 0xFD)
         else:
-            self._emit_expr_to_a(s['value'])
-            name = s['target'].get('name', '')
-            var = self._var(name)
-            if var:
-                self._st_var_byte(var, f'{name} = ...')
+            if self._is_16(target) or self._is_32(target):
+                self._emit_word_assign(s)
+            else:
+                self._emit_expr_to_a(s['value'])
+                name = target.get('name', '')
+                var = self._var(name)
+                if var:
+                    self._st_var_byte(var, f'{name} = ...')
 
     def _emit_word_assign(self, s):
         lhs_name = s['target'].get('name', '')
@@ -762,6 +819,38 @@ class CodeGenerator:
                         self.e.abs('LDA', addr, f'ld {node["name"]}')
             else:
                 self.e.imm('LDA', 0, f'?{node["name"]}')
+        elif kind == 'ArrayAccess':
+            if self._is_16(node):
+                self._emit_array_addr_to_fd_fe(node)
+                self.e.imm('LDY', 0)
+                self.e.iny('LDA', 0xFD)
+                self.e.zp('STA', 0xFB)
+                self.e.imp('INY')
+                self.e.iny('LDA', 0xFD)
+                self.e.zp('STA', 0xFC)
+                self.e.zp('LDA', 0xFB)
+            else:
+                self._emit_array_addr_to_fd_fe(node)
+                self.e.imm('LDY', 0)
+                self.e.iny('LDA', 0xFD)
+        elif kind == 'FieldAccess':
+            f_var = self._emit_field_var(node)
+            if f_var:
+                if self._is_16(node):
+                    self._ld_var_byte(f_var)
+                    self.e.zp('STA', 0xFB)
+                    if f_var['isZP']:
+                        self.e.zp('STA', f_var['addr'] + 1)
+                    else:
+                        addr = f_var.get('addr') or f_var.get('bss_label', 0)
+                        if isinstance(addr, str):
+                            self.e.abs('LDA', f"{addr}+1")
+                        else:
+                            self.e.abs('LDA', addr + 1)
+                    self.e.zp('STA', 0xFC)
+                    self.e.zp('LDA', 0xFB)
+                else:
+                    self._ld_var_byte(f_var)
         elif kind == 'BinaryOp':
             self._emit_binop_to_a(node)
         elif kind == 'UnaryOp':
@@ -776,10 +865,65 @@ class CodeGenerator:
                 self.e.imm('LDA', 0)
                 self.e.branch('BNE', self.e.uniq('_not'))
                 self.e.imm('LDA', 1)
+            elif node['op'] == '&':
+                operand = node['operand']
+                if operand['k'] == 'Ident':
+                    var = self._var(operand['name'])
+                    if var:
+                        addr = var.get('addr') or var.get('bss_label', 0)
+                        if isinstance(addr, str):
+                            self.e.imm('LDA', f"<{addr}")
+                            self.e.zp('STA', 0xFB)
+                            self.e.imm('LDA', f">{addr}")
+                            self.e.zp('STA', 0xFC)
+                        else:
+                            self.e.imm('LDA', addr & 0xFF)
+                            self.e.zp('STA', 0xFB)
+                            self.e.imm('LDA', (addr >> 8) & 0xFF)
+                            self.e.zp('STA', 0xFC)
+                        self.e.zp('LDA', 0xFB)
+                elif operand['k'] == 'FieldAccess':
+                    f_var = self._emit_field_var(operand)
+                    if f_var:
+                        addr = f_var.get('addr') or f_var.get('bss_label', 0)
+                        if isinstance(addr, str):
+                            self.e.imm('LDA', f"<{addr}")
+                            self.e.zp('STA', 0xFB)
+                            self.e.imm('LDA', f">{addr}")
+                            self.e.zp('STA', 0xFC)
+                        else:
+                            self.e.imm('LDA', addr & 0xFF)
+                            self.e.zp('STA', 0xFB)
+                            self.e.imm('LDA', (addr >> 8) & 0xFF)
+                            self.e.zp('STA', 0xFC)
+                        self.e.zp('LDA', 0xFB)
+                elif operand['k'] == 'ArrayAccess':
+                    self._emit_array_addr_to_fd_fe(operand)
+                    self.e.zp('LDA', 0xFD)
+                    self.e.zp('STA', 0xFB)
+                    self.e.zp('LDA', 0xFE)
+                    self.e.zp('STA', 0xFC)
+                    self.e.zp('LDA', 0xFB)
+            elif node['op'] == '*':
+                if self._is_16(node):
+                    self._emit_word_to_fd_fe(node['operand'])
+                    self.e.imm('LDY', 0)
+                    self.e.iny('LDA', 0xFD)
+                    self.e.zp('STA', 0xFB)
+                    self.e.imp('INY')
+                    self.e.iny('LDA', 0xFD)
+                    self.e.zp('STA', 0xFC)
+                    self.e.zp('LDA', 0xFB)
+                else:
+                    self._emit_word_to_fd_fe(node['operand'])
+                    self.e.imm('LDY', 0)
+                    self.e.iny('LDA', 0xFD)
             else:
                 self._emit_expr_to_a(node['operand'])
         elif kind == 'Call':
             self._emit_call(node)
+        elif kind == 'MethodCall':
+            self._emit_method_call(node)
         elif kind == 'Cast':
             self._emit_expr_to_a(node['expr'])
         else:
@@ -921,9 +1065,50 @@ class CodeGenerator:
                     else:
                         self.e.imm('LDA', 0)
                         self.e.zp('STA', zp_addr + 1)
+        elif node['k'] == 'ArrayAccess':
+            self._emit_array_addr_to_fd_fe(node)
+            self.e.imm('LDY', 0)
+            self.e.iny('LDA', 0xFD)
+            self.e.zp('STA', zp_addr)
+            if self._is_16(node):
+                self.e.imp('INY')
+                self.e.iny('LDA', 0xFD)
+                self.e.zp('STA', zp_addr + 1)
+            else:
+                self.e.imm('LDA', 0)
+                self.e.zp('STA', zp_addr + 1)
+        elif node['k'] == 'FieldAccess':
+            f_var = self._emit_field_var(node)
+            if f_var:
+                self._ld_var_byte(f_var)
+                self.e.zp('STA', zp_addr)
+                if self._is_16(node):
+                    if f_var['isZP']:
+                        self.e.zp('LDA', f_var['addr'] + 1)
+                    else:
+                        addr = f_var.get('addr') or f_var.get('bss_label', 0)
+                        if isinstance(addr, str):
+                            self.e.abs('LDA', f"{addr}+1")
+                        else:
+                            self.e.abs('LDA', addr + 1)
+                    self.e.zp('STA', zp_addr + 1)
+                else:
+                    self.e.imm('LDA', 0)
+                    self.e.zp('STA', zp_addr + 1)
+        elif node['k'] == 'UnaryOp' and node['op'] == '*':
+            self._emit_word_to_fd_fe(node['operand'])
+            self.e.imm('LDY', 0)
+            self.e.iny('LDA', 0xFD)
+            self.e.zp('STA', zp_addr)
+            if self._is_16(node):
+                self.e.imp('INY')
+                self.e.iny('LDA', 0xFD)
+                self.e.zp('STA', zp_addr + 1)
+            else:
+                self.e.imm('LDA', 0)
+                self.e.zp('STA', zp_addr + 1)
         else:
             self._emit_expr_to_a(node)
-            # node might be 16-bit, so it might have put hi byte in $FC
             self.e.zp('STA', zp_addr)
             if self._is_16(node):
                 self.e.zp('LDA', 0xFC)
@@ -931,6 +1116,167 @@ class CodeGenerator:
             else:
                 self.e.imm('LDA', 0)
                 self.e.zp('STA', zp_addr + 1)
+
+    def _emit_method_call(self, node):
+        method = node['method']
+        obj = node['obj']
+        args = node['args']
+
+        built_in_map = {
+            'enable': 'sprite_enable',
+            'pos': 'sprite_pos',
+            'color': 'sprite_color',
+            'expand': 'sprite_stretch',
+            'play_note': 'sid_freq',
+            'set_adsr': 'sid_setup'
+        }
+
+        if method in built_in_map:
+            builtin_name = built_in_map[method]
+            virtual_call = {
+                'k': 'Call',
+                'name': builtin_name,
+                'args': [obj] + args,
+                'line': node.get('line', 0)
+            }
+            self._emit_call(virtual_call)
+
+    def _emit_array_addr_to_fd_fe(self, node):
+        var = self._var(node['name'])
+        if not var:
+            return
+        idxs = node.get('idxs', [node['idx']])
+        elem_size = TYPE_SIZE.get(var['type'], 1)
+
+        # Compute flat offset in FB/FC
+        if len(idxs) == 1:
+            idx = idxs[0]
+            if idx['k'] == 'Literal':
+                offset = idx['value'] * elem_size
+                self.e.imm('LDA', offset & 0xFF)
+                self.e.zp('STA', 0xFB)
+                self.e.imm('LDA', (offset >> 8) & 0xFF)
+                self.e.zp('STA', 0xFC)
+            else:
+                self._emit_expr_to_a(idx)
+                if elem_size == 1:
+                    self.e.zp('STA', 0xFB)
+                    self.e.imm('LDA', 0)
+                    self.e.zp('STA', 0xFC)
+                elif elem_size == 2:
+                    self.e.acc('ASL')
+                    self.e.zp('STA', 0xFB)
+                    self.e.imm('LDA', 0)
+                    self.e.zp('ROL')
+                    self.e.zp('STA', 0xFC)
+                else:
+                    self.e.zp('STA', 0xFC, 'tmp')
+                    self.e.imm('LDA', elem_size)
+                    self.e.jsr('_mul_byte')
+                    self.e.zp('STA', 0xFB)
+                    self.e.imm('LDA', 0)
+                    self.e.zp('STA', 0xFC)
+        else:
+            dims = var.get('arrDims', [])
+            self._emit_expr_to_a(idxs[0])
+            self.e.zp('STA', 0xFB)
+            for d_idx in range(1, len(idxs)):
+                dim_size = dims[d_idx] if d_idx < len(dims) else 1
+                self.e.zp('LDA', 0xFB)
+                self.e.zp('STA', 0xFC)
+                self.e.imm('LDA', dim_size)
+                self.e.jsr('_mul_byte')
+                self.e.zp('STA', 0xFB)
+
+                self._emit_expr_to_a(idxs[d_idx])
+                self.e.zp('STA', 0xFC)
+                self.e.zp('LDA', 0xFB)
+                self.e.imp('CLC')
+                self.e.zp('ADC', 0xFC)
+                self.e.zp('STA', 0xFB)
+
+            if elem_size > 1:
+                self.e.zp('LDA', 0xFB)
+                self.e.zp('STA', 0xFC)
+                self.e.imm('LDA', elem_size)
+                self.e.jsr('_mul_byte')
+                self.e.zp('STA', 0xFB)
+
+            self.e.imm('LDA', 0)
+            self.e.zp('STA', 0xFC)
+
+        # Add base address of array to FB/FC and store in FD/FE
+        self.e.imp('CLC')
+        base_addr = var.get('addr') or var.get('bss_label', 0)
+        if isinstance(base_addr, str):
+            self.e.zp('LDA', 0xFB)
+            self.e.abs('ADC', base_addr)
+            self.e.zp('STA', 0xFD)
+            self.e.zp('LDA', 0xFC)
+            self.e.abs('ADC', f"{base_addr}+1")
+            self.e.zp('STA', 0xFE)
+        else:
+            self.e.zp('LDA', 0xFB)
+            self.e.imm('ADC', base_addr & 0xFF)
+            self.e.zp('STA', 0xFD)
+            self.e.zp('LDA', 0xFC)
+            self.e.imm('ADC', (base_addr >> 8) & 0xFF)
+            self.e.zp('STA', 0xFE)
+
+    def _get_struct_info(self, type_name):
+        for s in self.ast.get('structs', []):
+            if s['name'] == type_name:
+                return s
+        return None
+
+    def _resolve_field_and_var(self, node):
+        if node['k'] == 'Ident':
+            var = self._var(node['name'])
+            return var, 0, var['type'] if var else 'unknown'
+        if node['k'] == 'FieldAccess':
+            var, parent_offset, parent_type = self._resolve_field_and_var(node['obj'])
+            if not var:
+                return None, 0, 'unknown'
+            struct_info = self._get_struct_info(parent_type)
+            if not struct_info:
+                return None, 0, 'unknown'
+            field_offset = 0
+            field_type = 'unknown'
+            current_offset = 0
+            for f in struct_info['fields']:
+                if f['name'] == node['field']:
+                    field_offset = current_offset
+                    field_type = f['type']
+                    break
+                field_offset_inc = TYPE_SIZE.get(f['type'], 1)
+                sub_struct = self._get_struct_info(f['type'])
+                if sub_struct:
+                    field_offset_inc = sum(TYPE_SIZE.get(sf['type'], 1) for sf in sub_struct['fields'])
+                current_offset += field_offset_inc
+            return var, parent_offset + field_offset, field_type
+        return None, 0, 'unknown'
+
+    def _emit_field_var(self, node):
+        var, offset, f_type = self._resolve_field_and_var(node)
+        if not var:
+            return None
+        base_addr = var.get('addr') or var.get('bss_label', 0)
+        is_zp = var['isZP']
+
+        if isinstance(base_addr, str):
+            if offset > 0:
+                new_addr = f"{base_addr}+{offset}"
+            else:
+                new_addr = base_addr
+        else:
+            new_addr = base_addr + offset
+
+        return {
+            'name': var['name'] + '_field',
+            'type': f_type,
+            'isZP': is_zp,
+            'addr': new_addr
+        }
 
     def get_bytecode(self):
         return self.e.buf

@@ -71,6 +71,17 @@ class PRGBuilder:
         k = node.get('k', '')
         if k == 'Call' and node.get('name') == name:
             return True
+        if k == 'MethodCall':
+            built_in_map = {
+                'enable': 'sprite_enable',
+                'pos': 'sprite_pos',
+                'color': 'sprite_color',
+                'expand': 'sprite_stretch',
+                'play_note': 'sid_freq',
+                'set_adsr': 'sid_setup'
+            }
+            if built_in_map.get(node.get('method')) == name:
+                return True
         for child in ('stmts', 'args', 'then', 'else', 'body', 'init', 'incr',
                       'expr', 'cond', 'left', 'right', 'operand', 'value', 'target'):
             val = node.get(child)
@@ -111,10 +122,13 @@ class PRGBuilder:
         # Also check for print_byte / mul_byte usage
         if self._needs_routine('print') or self._needs_routine('println'):
             runtime_names.add('_print_byte')
+        has_mul = False
         for f in self.ast['funcs']:
-            if self._find_mul(f['body']):
-                runtime_names.add('_mul_byte')
+            if self._find_mul(f['body']) or self._find_array_access(f['body']):
+                has_mul = True
                 break
+        if has_mul:
+            runtime_names.add('_mul_byte')
 
         if not runtime_names:
             return
@@ -155,6 +169,25 @@ class PRGBuilder:
                     if self._find_mul(v):
                         return True
             elif self._find_mul(val):
+                return True
+        return False
+
+    def _find_array_access(self, node):
+        if not isinstance(node, dict):
+            return False
+        k = node.get('k', '')
+        if k == 'ArrayAccess':
+            return True
+        for child in ('stmts', 'args', 'then', 'else', 'body', 'init', 'incr',
+                      'expr', 'cond', 'left', 'right', 'operand', 'value', 'target'):
+            val = node.get(child)
+            if val is None:
+                continue
+            if isinstance(val, list):
+                for v in val:
+                    if self._find_array_access(v):
+                        return True
+            elif self._find_array_access(val):
                 return True
         return False
 

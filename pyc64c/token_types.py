@@ -34,14 +34,15 @@ class TT:
 
 C64PY_KEYWORDS = frozenset({
     'def', 'if', 'else', 'elif', 'while', 'for', 'in', 'return',
-    'pass', 'and', 'or', 'not', 'break', 'continue', 'True', 'False'
+    'pass', 'and', 'or', 'not', 'break', 'continue', 'True', 'False',
+    'struct'
 })
 
 C64PY_TYPES = frozenset({
     'byte', 'word', 'int', 'float', 'void', 'q8_8', 'sq8_8',
     'uint', 'long', 'ulong', 'dword', 'bool', 'string',
     'q16_8', 'q8_16', 'q16_16',
-    'sq16_8', 'sq8_16', 'sq16_16',
+    'sq16_8', 'sq8_16', 'sq16_16', 'ptr'
 })
 
 C64PY_BUILTINS = frozenset({

@@ -1,4 +1,15 @@
 services:
+  # ── API Server Compiler Agent ──
+  pyc64-api:
+    build: .
+    container_name: pyc64-api
+    ports:
+      - "8000:8000"
+    working_dir: /app
+    volumes:
+      - ./pyc64c:/app/pyc64c:ro
+    command: uvicorn pyc64c.api_server:app --host 0.0.0.0 --port 8000
+
   # ── TUI + Motore (comando principale) ──
   pyc64:
     build: .

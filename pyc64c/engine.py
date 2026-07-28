@@ -106,35 +106,28 @@ def run_pipeline(source: str, options: Optional[Dict[str, Any]] = None) -> Engin
             sim.run(max_steps=max_steps)
             res.simulation_output = sim.output_buffer
             res.simulation_history = sim.history
+            res.metrics["estimated_cycles"] = sim.total_cycles
+            res.metrics["estimated_frame_time"] = sim.total_cycles / 985248
 
     # AI self-healing suggestions
     if not res.success:
-        new_diagnostics = []
         for diag in res.diagnostics:
             if diag.get("severity") == "error":
                 msg = diag.get("message", "").lower()
                 if "undefined" in msg:
                     import re
-                    # Look for things like 'variable name' or "variable name" or just variable name at end
                     match = re.search(r"['\"]?([a-zA-Z0-9_]+)['\"]?\s*$", diag["message"])
                     var_name = match.group(1) if match else "variable"
-                    new_diagnostics.append({
-                        "severity": "info",
-                        "source": "ai-assistant",
-                        "message": f"AI Suggestion: The variable '{var_name}' is used but not defined. Check spelling or add 'var {var_name}: byte = 0'."
-                    })
+                    diag["suggestion"] = f"AI Suggestion: The variable '{var_name}' is used but not defined. Check spelling or add '{var_name}: byte = 0'."
+                    diag["fix_type"] = "add_variable"
+                    diag["confidence"] = 0.95
                 elif "type mismatch" in msg:
-                    new_diagnostics.append({
-                        "severity": "info",
-                        "source": "ai-assistant",
-                        "message": "AI Suggestion: Type mismatch detected. Ensure you are not assigning a 16-bit value to an 8-bit variable without a cast."
-                    })
-                elif "syntax error" in msg:
-                    new_diagnostics.append({
-                        "severity": "info",
-                        "source": "ai-assistant",
-                        "message": "AI Suggestion: Syntax error. Remember that PYC64 requires explicit type annotations for variables and function returns."
-                    })
-        res.diagnostics.extend(new_diagnostics)
+                    diag["suggestion"] = "AI Suggestion: Type mismatch detected. Ensure you are not assigning a 16-bit value to an 8-bit variable without a cast."
+                    diag["fix_type"] = "change_type"
+                    diag["confidence"] = 0.90
+                elif "syntax" in msg or "carattere" in msg or "unexpected" in msg or "expected" in msg:
+                    diag["suggestion"] = "AI Suggestion: Syntax error. Remember that PYC64 requires explicit type annotations for variables and function returns."
+                    diag["fix_type"] = "syntax_fix"
+                    diag["confidence"] = 0.85
 
     return res

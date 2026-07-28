@@ -5,6 +5,10 @@ WORKDIR /app
 # Install runtime deps
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 # Copy all project modules
 COPY pyc64c/ pyc64c/
 COPY pyc64_ui/ pyc64_ui/
@@ -15,8 +19,7 @@ COPY examples/ examples/
 # Create output directory
 RUN mkdir -p output
 
-# Install Python dependencies
-RUN pip install --no-cache-dir textual c64py 2>/dev/null || true
+EXPOSE 8000
 
 # Default: launch the TUI
 CMD ["python3", "-m", "pyc64_ui.app"]

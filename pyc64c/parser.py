@@ -78,25 +78,55 @@ class Parser:
             self.advance()
 
     def parse(self):
+        import math
         globals_ = []
         funcs = []
+        structs = []
         while not self.is_eof():
             while self.try_eat(TT.NEWLINE):
                 pass
             if self.is_eof():
                 break
             try:
-                if self.check_kw('def'):
+                if self.check_kw('struct'):
+                    structs.append(self.parse_struct_decl())
+                elif self.check_kw('def'):
                     funcs.append(self.parse_func_decl())
                 elif self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
                     globals_.append(self.parse_var_decl())
                 else:
-                    self._err("Global declaration expected (def or var:type)")
+                    self._err("Global declaration expected (def, struct, or var:type)")
                     self.advance()
             except ParseError as e:
                 self.errors.append({'msg': e.args[0], 'line': e.line, 'col': e.col})
                 self.sync()
-        return N.Program(globals_, funcs)
+        program = N.Program(globals_, funcs)
+        program['structs'] = structs
+        return program
+
+    def parse_struct_decl(self):
+        line = self.cur().line
+        self.expect_kw('struct')
+        name = self.expect(TT.IDENT).value
+        self.expect(TT.COLON)
+
+        fields = []
+        self.expect(TT.NEWLINE)
+        self.expect(TT.INDENT)
+        while not self.check(TT.DEDENT) and not self.is_eof():
+            while self.try_eat(TT.NEWLINE):
+                pass
+            if self.check(TT.DEDENT):
+                break
+            f_name = self.expect(TT.IDENT).value
+            self.expect(TT.COLON)
+            f_type = self.advance().value
+            fields.append({'name': f_name, 'type': f_type})
+            self.try_eat(TT.COLON)  # optional semicolon
+            while self.try_eat(TT.NEWLINE):
+                pass
+        self.expect(TT.DEDENT)
+        return {'k': 'StructDecl', 'name': name, 'fields': fields, 'line': line}
 
     def parse_suite(self):
         if self.check(TT.NEWLINE) or self.check(TT.INDENT):
@@ -177,20 +207,48 @@ class Parser:
         return self.mk(N.FuncDecl(name, params, ret, N.Block(body), line))
 
     def parse_var_decl(self):
+        import math
         line = self.cur().line
         name = self.expect(TT.IDENT).value
         self.expect(TT.COLON)
+
+        # Support '^' or '*' pointer type prefix
+        is_ptr = False
+        if self.check(TT.OP) and self.cur().value in ('^', '*'):
+            self.advance()
+            is_ptr = True
+
         type_ = self.advance().value
+        if is_ptr:
+            type_ = 'ptr'
+
         is_arr = False
-        arr_size = 0
-        if self.try_eat(TT.LBRACK):
-            arr_size = self.expect(TT.INT_LIT).value
-            self.expect(TT.RBRACK)
+        arr_dims = []
+        if self.check(TT.LBRACK):
             is_arr = True
+            while self.try_eat(TT.LBRACK):
+                while True:
+                    dim_val = self.expect(TT.INT_LIT).value
+                    arr_dims.append(dim_val)
+                    if not self.try_eat(TT.COMMA):
+                        break
+                self.expect(TT.RBRACK)
+
         init = None
         if self.try_eat(TT.ASSIGN):
             init = self.parse_expr()
-        return self.mk(N.VarDecl(type_, name, init, is_arr, arr_size, None, line))
+
+        return self.mk({
+            'k': 'VarDecl',
+            'type': type_,
+            'name': name,
+            'init': init,
+            'isArr': is_arr,
+            'arrSize': N.Literal('int', math.prod(arr_dims)) if arr_dims else None,
+            'arrDims': arr_dims,
+            'arrInit': None,
+            'line': line
+        })
 
     def parse_if(self):
         line = self.cur().line
@@ -288,7 +346,7 @@ class Parser:
         return e
 
     def parse_unary(self):
-        if self.check(TT.NOT) or (self.check(TT.OP) and self.cur().value == '-'):
+        if self.check(TT.NOT) or (self.check(TT.OP) and self.cur().value in ('-', '*', '&')):
             op = self.advance().value
             r = self.parse_unary()
             return self.mk(N.UnaryOp(op, r))
@@ -316,6 +374,7 @@ class Parser:
             return self.mk(N.Literal('bool', 0, 'False'))
         if self.check(TT.IDENT):
             name = self.advance().value
+            node = None
             if self.try_eat(TT.LPAREN):
                 args = []
                 if not self.check(TT.RPAREN):
@@ -324,12 +383,52 @@ class Parser:
                         if not self.try_eat(TT.COMMA):
                             break
                 self.expect(TT.RPAREN)
-                return self.mk(N.Call(name, args, t.line))
-            if self.try_eat(TT.LBRACK):
-                idx = self.parse_expr()
-                self.expect(TT.RBRACK)
-                return self.mk(N.ArrayAccess(name, idx, t.line))
-            return self.mk(N.Ident(name, t.line))
+                node = self.mk(N.Call(name, args, t.line))
+            elif self.check(TT.LBRACK):
+                idxs = []
+                while self.try_eat(TT.LBRACK):
+                    while True:
+                        idxs.append(self.parse_expr())
+                        if not self.try_eat(TT.COMMA):
+                            break
+                    self.expect(TT.RBRACK)
+                idx = idxs[0] if len(idxs) == 1 else idxs
+                node = self.mk({
+                    'k': 'ArrayAccess',
+                    'name': name,
+                    'idx': idx,
+                    'idxs': idxs,
+                    'line': t.line
+                })
+            else:
+                node = self.mk(N.Ident(name, t.line))
+
+            # Parse subsequent dot accesses: point.field or point.method(...)
+            while self.try_eat(TT.DOT):
+                field_name = self.expect(TT.IDENT).value
+                if self.try_eat(TT.LPAREN):
+                    args = []
+                    if not self.check(TT.RPAREN):
+                        while True:
+                            args.append(self.parse_expr())
+                            if not self.try_eat(TT.COMMA):
+                                break
+                    self.expect(TT.RPAREN)
+                    node = self.mk({
+                        'k': 'MethodCall',
+                        'obj': node,
+                        'method': field_name,
+                        'args': args,
+                        'line': t.line
+                    })
+                else:
+                    node = self.mk({
+                        'k': 'FieldAccess',
+                        'obj': node,
+                        'field': field_name,
+                        'line': t.line
+                    })
+            return node
         if self.check(TT.TYPE):
             type_ = self.advance().value
             if self.try_eat(TT.LPAREN):

@@ -53,10 +53,11 @@ def analyze_ast(ast):
                 walk(f)
         elif k == 'VarDecl':
             global_vars += 1
-            if node.get('type') == 'float' or node.get('init', {}).get('kind') == 'float':
+            init_node = node.get('init')
+            if node.get('type') == 'float' or (init_node and isinstance(init_node, dict) and init_node.get('kind') == 'float'):
                 uses_float = True
-            if node.get('init'):
-                walk(node['init'])
+            if init_node:
+                walk(init_node)
         elif k == 'FuncDecl':
             func_count += 1
             if node.get('ret') == 'float':
@@ -159,6 +160,72 @@ def compile_source(src):
     return result
 
 
+def analyze_variable_frequencies(ast):
+    freqs = {}
+    def walk(node):
+        if node is None or not isinstance(node, dict):
+            return
+        k = node.get('k')
+        if k == 'Ident':
+            name = node['name']
+            freqs[name] = freqs.get(name, 0) + 1
+        elif k == 'ArrayAccess':
+            name = node['name']
+            freqs[name] = freqs.get(name, 0) + 1
+            walk(node.get('idx'))
+        elif isinstance(node, dict):
+            for v in node.values():
+                if isinstance(v, dict):
+                    walk(v)
+                elif isinstance(v, list):
+                    for item in v:
+                        walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(ast)
+    return freqs
+
+
+def build_reachability(ast):
+    direct_calls = {}
+
+    def collect_calls(node, calls_set):
+        if node is None:
+            return
+        k = node.get('k')
+        if k == 'Call':
+            calls_set.add(node['name'])
+        if isinstance(node, dict):
+            for v in node.values():
+                if isinstance(v, dict):
+                    collect_calls(v, calls_set)
+                elif isinstance(v, list):
+                    for item in v:
+                        collect_calls(item, calls_set)
+        elif isinstance(node, list):
+            for item in node:
+                collect_calls(item, calls_set)
+
+    for f in ast.get('funcs', []):
+        f_calls = set()
+        collect_calls(f.get('body'), f_calls)
+        direct_calls[f['name']] = f_calls
+
+    reachable = {}
+    for f in ast.get('funcs', []):
+        visited = set()
+        queue = list(direct_calls.get(f['name'], set()))
+        while queue:
+            curr = queue.pop(0)
+            if curr not in visited:
+                visited.add(curr)
+                if curr in direct_calls:
+                    queue.extend(direct_calls[curr])
+        reachable[f['name']] = visited
+    return reachable
+
+
 def compile_to_prg(src):
     """Compile C64PY source to PRG bytes."""
     from .code_emitter import PRG_CODE_OFFSET
@@ -208,6 +275,12 @@ def compile_to_prg(src):
             self._zp_black = set()
             self._init_blacklist()
 
+            # Advanced Zero-Page Allocation fields
+            self.frequencies = analyze_variable_frequencies(ast)
+            self.reachable = build_reachability(ast)
+            self.allocated_zp_by_func = {} # func_name -> set of ZP bytes
+            self.zp_locals_start = 0x02
+
         def _init_blacklist(self):
             blk = [0x00, 0x01]
             blk.extend(range(0x03, 0x07))
@@ -223,26 +296,51 @@ def compile_to_prg(src):
                 blk.extend(range(0x8B, 0x90))
             self._zp_black = set(blk)
 
-        def _zp_alloc(self, n):
-            start = self.zp_next
+        def _zp_alloc(self, n, f_name=None):
+            start = self.zp_next if f_name is None else self.zp_locals_start
+
+            interfering_zp = set()
+            if f_name is not None:
+                for other_func, reachable_set in self.reachable.items():
+                    if other_func == f_name:
+                        continue
+                    if other_func in self.reachable.get(f_name, set()) or f_name in reachable_set:
+                        interfering_zp.update(self.allocated_zp_by_func.get(other_func, set()))
+
             while start + n <= self.zp_end:
                 ok = True
                 for i in range(n):
-                    if (start + i) in self._zp_black:
-                        start = start + i + 1
+                    addr = start + i
+                    if addr in self._zp_black or addr in interfering_zp:
+                        start = addr + 1
                         ok = False
                         break
                 if ok:
-                    self.zp_next = start + n
+                    if f_name is not None:
+                        if f_name not in self.allocated_zp_by_func:
+                            self.allocated_zp_by_func[f_name] = set()
+                        for i in range(n):
+                            self.allocated_zp_by_func[f_name].add(start + i)
+                    else:
+                        self.zp_next = start + n
                     return start
             return None
 
         def plan(self):
+            globals_to_plan = []
             for g in ast.get('globals', []):
                 t = g['type']
                 arr_cnt = g.get('arrSize', {}).get('value', 0) if g.get('isArr') else 0
                 base = TYPE_SIZE.get(t, 1)
                 size = base * max(arr_cnt, 1) if g.get('isArr') else base
+                freq = self.frequencies.get(g['name'], 0)
+                globals_to_plan.append((freq, g, size, arr_cnt))
+
+            globals_to_plan.sort(key=lambda x: x[0], reverse=True)
+
+            globals_map = {}
+            for freq, g, size, arr_cnt in globals_to_plan:
+                t = g['type']
                 addr = None
                 is_zp = False
                 if not g.get('isArr') and t != 'string' and t != 'float':
@@ -251,33 +349,66 @@ def compile_to_prg(src):
                         is_zp = True
                 if not is_zp:
                     self.bss_size += size
-                self.globals.append({
+                globals_map[g['name']] = {
                     'name': g['name'], 'type': t, 'size': size,
                     'addr': addr, 'isZP': is_zp,
                     'isArr': g.get('isArr', False),
                     'arrCount': max(arr_cnt, 0) if g.get('isArr') else 0,
                     'kind': 'global'
-                })
+                }
+
+            for g in ast.get('globals', []):
+                self.globals.append(globals_map[g['name']])
+
+            self.zp_locals_start = self.zp_next
+
             for f in ast.get('funcs', []):
                 locals_ = []
+                params_list = []
                 for p in f.get('params', []):
                     p_size = TYPE_SIZE.get(p['type'], 1)
-                    p_addr = self._zp_alloc(p_size) if p['type'] != 'float' else None
-                    locals_.append({
+                    freq = self.frequencies.get(p['name'], 0)
+                    params_list.append((freq, p, p_size))
+
+                raw_locals = []
+                self._collect_locals(f.get('body', {}), raw_locals)
+
+                all_to_alloc = []
+                for freq, p, p_size in params_list:
+                    all_to_alloc.append({
                         'name': p['name'], 'type': p['type'], 'size': p_size,
-                        'kind': 'param', 'addr': p_addr, 'isZP': p_addr is not None
+                        'kind': 'param', 'freq': freq
                     })
-                self._collect_locals(f.get('body', {}), locals_)
-                for v in locals_:
-                    if v['kind'] == 'local' and not v.get('isArr') and v['addr'] is None:
-                        if v['type'] != 'float':
-                            v['addr'] = self._zp_alloc(v['size'])
-                            v['isZP'] = v['addr'] is not None
-                frame = sum(v['size'] for v in locals_ if not v.get('isArr'))
+                for v in raw_locals:
+                    freq = self.frequencies.get(v['name'], 0)
+                    all_to_alloc.append({
+                        'name': v['name'], 'type': v['type'], 'size': v['size'],
+                        'kind': 'local', 'isArr': v.get('isArr', False),
+                        'arrCount': v.get('arrCount', 0), 'freq': freq
+                    })
+
+                all_to_alloc.sort(key=lambda x: x['freq'], reverse=True)
+
+                allocated_locals = []
+                for v in all_to_alloc:
+                    addr = None
+                    is_zp = False
+                    if not v.get('isArr') and v['type'] != 'float':
+                        addr = self._zp_alloc(v['size'], f['name'])
+                        if addr is not None:
+                            is_zp = True
+
+                    allocated_locals.append({
+                        'name': v['name'], 'type': v['type'], 'size': v['size'],
+                        'kind': v['kind'], 'isArr': v.get('isArr', False),
+                        'arrCount': v.get('arrCount', 0), 'addr': addr, 'isZP': is_zp
+                    })
+
+                frame = sum(v['size'] for v in allocated_locals if not v.get('isArr'))
                 if self.uses_float:
                     self.bss_size += frame
                 self.func_layouts[f['name']] = {
-                    'locals': locals_, 'frameBytes': frame, 'ret': f.get('ret', 'void')
+                    'locals': allocated_locals, 'frameBytes': frame, 'ret': f.get('ret', 'void')
                 }
             return self
 

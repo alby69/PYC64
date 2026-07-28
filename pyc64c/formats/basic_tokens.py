@@ -85,12 +85,17 @@ def detokenize_basic(prg_data: bytes) -> str:
         return ""
     lines: list[str] = []
     offset = 2
+    load_addr = prg_data[0] + (prg_data[1] << 8)
     while offset < len(prg_data) - 4:
-        next_line = prg_data[offset] + (prg_data[offset + 1] << 8)
+        next_line_abs = prg_data[offset] + (prg_data[offset + 1] << 8)
         line_num = prg_data[offset + 2] + (prg_data[offset + 3] << 8)
-        if next_line == 0 or line_num == 0:
+        if next_line_abs == 0 or line_num == 0:
             break
-        line_data = prg_data[offset + 4 : offset + 4 + (next_line - offset - 4)]
+        # Convert absolute next line address to relative offset in prg_data
+        next_line = next_line_abs - load_addr + 2
+        if next_line <= offset + 4 or next_line > len(prg_data):
+            break
+        line_data = prg_data[offset + 4 : next_line]
         if not line_data:
             break
         tokens_parts: list[str] = []
@@ -159,11 +164,14 @@ def detokenize_basic(prg_data: bytes) -> str:
 def is_basic_prg(prg_data: bytes) -> bool:
     if len(prg_data) < 7:
         return False
-    if prg_data[0] == 0 and prg_data[1] == 0:
+    load_addr = prg_data[0] + (prg_data[1] << 8)
+    if load_addr == 0:
         return False
     next_line = prg_data[2] + (prg_data[3] << 8)
     line_num = prg_data[4] + (prg_data[5] << 8)
-    return 0 < next_line < len(prg_data) + 4 and 0 <= line_num <= 63999
+    # Convert absolute next_line to relative offset in prg_data
+    relative_next = next_line - load_addr + 2
+    return 2 < relative_next <= len(prg_data) and 0 <= line_num <= 63999
 
 
 def hex_dump(data: bytes, bytes_per_line: int = 16) -> str:

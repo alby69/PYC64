@@ -1,0 +1,16 @@
+name: compiler
+display_name: "PYC64 — Compilatore & TUI"
+version: "0.1.0"
+sdk_api_version: "1"
+description: "Compilatore Python→6502 (pyc64c), TUI IDE (pyc64_ui, Textual), simulatore e server API per sviluppo C64."
+entry_points:
+  cli: "run_c64.py:main"
+  ui: "pyc64_ui.app:run"
+  api: "pyc64c.api_server:main"
+capabilities:
+  - compile
+  - tui
+  - simulate
+  - api-server
+requires_python: ">=3.10"
+standalone: true

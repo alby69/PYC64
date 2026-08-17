@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyc64"
+version = "0.1.0"
+description = "PYC64 — Compilatore Python→6502, TUI IDE e simulatore per Commodore 64"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+    "textual>=0.41.0",
+    "c64py>=1.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0.0"]
+
+[project.scripts]
+pyc64c = "run_c64:main"
+pyc64-ui = "pyc64_ui.app:run"
+
+[tool.setuptools]
+packages = ["pyc64c", "pyc64_ui"]

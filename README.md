@@ -96,3 +96,7 @@ Developed with the assistance of Claude (Anthropic).
 
 This project is licensed under the **GNU General Public License v3.0**.
 Respect all third-party code licenses included in this repository.
+
+## Origini e codice upstream (H1)
+
+PYC64 è un **fork** di [YouDevIt/C64C](https://github.com/YouDevIt/C64C). Il codice ereditato dal progetto upstream conserva la propria storia e i propri obblighi di licenza (GPLv3): verificare i file sorgente ereditati prima di redistribuire. Le funzionalità specifiche per l'SDK (integrazione C64-LLM, plugin system, schemi contratto) sono aggiunte originali di questo repository. Le migliorie generiche dovrebbero idealmente essere proposte come PR upstream per ridurre il drift di manutenzione.

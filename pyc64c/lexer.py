@@ -3,13 +3,7 @@
 from .token_types import (
     TT, Token, C64PY_KEYWORDS, C64PY_TYPES, C64PY_BUILTINS
 )
-
-
-class LexerError(Exception):
-    def __init__(self, msg, line, col):
-        super().__init__(msg)
-        self.line = line
-        self.col = col
+from .exceptions import LexerError
 
 
 class Lexer:
@@ -48,7 +42,8 @@ class Lexer:
         self.errors.append({
             'msg': msg,
             'line': line or self.line,
-            'col': col or self.col
+            'col': col or self.col,
+            'phase': 'lexer'
         })
 
     def tokenize(self):

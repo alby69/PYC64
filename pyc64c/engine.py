@@ -53,7 +53,7 @@ def run_pipeline(source: str, options: Optional[Dict[str, Any]] = None) -> Engin
         for e in result.lex_errors:
             res.diagnostics.append({
                 "severity": "error",
-                "source": "lexer",
+                "source": e.get("phase", "lexer"),
                 "line": e.get("line"),
                 "column": e.get("col"),
                 "message": e.get("msg")
@@ -63,7 +63,7 @@ def run_pipeline(source: str, options: Optional[Dict[str, Any]] = None) -> Engin
         for e in result.parse_errors:
             res.diagnostics.append({
                 "severity": "error",
-                "source": "parser",
+                "source": e.get("phase", "parser"),
                 "line": e.get("line"),
                 "column": e.get("col"),
                 "message": e.get("msg")

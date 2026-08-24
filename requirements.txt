@@ -3,5 +3,6 @@ textual>=0.41.0
 c64py>=1.0.0
 # pytest per sviluppo
 pytest>=7.0.0
+pytest-cov>=4.0.0
 fastapi>=0.100.0
 uvicorn>=0.20.0

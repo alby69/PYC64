@@ -2,13 +2,7 @@
 
 from .token_types import TT
 from .ast_nodes import N
-
-
-class ParseError(Exception):
-    def __init__(self, msg, line=0, col=0):
-        super().__init__(msg)
-        self.line = line
-        self.col = col
+from .exceptions import ParseError
 
 
 class Parser:
@@ -66,7 +60,7 @@ class Parser:
 
     def _err(self, msg, tok=None):
         tok = tok or self.cur()
-        self.errors.append({'msg': msg, 'line': tok.line or 0, 'col': tok.col or 0})
+        self.errors.append({'msg': msg, 'line': tok.line or 0, 'col': tok.col or 0, 'phase': 'parser'})
 
     def sync(self):
         while not self.is_eof():
@@ -98,7 +92,7 @@ class Parser:
                     self._err("Global declaration expected (def, struct, or var:type)")
                     self.advance()
             except ParseError as e:
-                self.errors.append({'msg': e.args[0], 'line': e.line, 'col': e.col})
+                self.errors.append({'msg': e.message if hasattr(e, 'message') else e.args[0], 'line': e.line or 0, 'col': e.col or 0, 'phase': 'parser'})
                 self.sync()
         program = N.Program(globals_, funcs)
         program['structs'] = structs

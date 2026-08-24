@@ -3,6 +3,7 @@
 from .lexer import Lexer
 from .parser import Parser
 from .token_types import C64PY_BUILTINS, C64PY_TYPES, C64PY_KEYWORDS
+from .exceptions import PYC64Error, LexerError, ParseError
 from .ast_nodes import TYPE_SIZE, is_fixed_type, fp_scale, promote_types, builtin_ret_type
 from .basic_gen import BASICGenerator
 from .code_emitter import PRG_LOAD_ADDR, PRG_CODE_OFFSET
@@ -114,8 +115,11 @@ def compile_source(src):
         tokens, lex_errors = lexer.tokenize()
         result.tokens = tokens
         result.lex_errors = lex_errors
-    except Exception as e:
-        result.lex_errors.append({'msg': str(e), 'line': 0, 'col': 0})
+    except LexerError as e:
+        result.lex_errors.append({'msg': e.message, 'line': e.line or 0, 'col': e.col or 0, 'phase': 'lexer'})
+        return result
+    except PYC64Error as e:
+        result.lex_errors.append({'msg': e.message, 'line': e.line or 0, 'col': e.col or 0, 'phase': e.phase})
         return result
 
     if lex_errors:
@@ -127,8 +131,11 @@ def compile_source(src):
         ast = parser.parse()
         result.ast = ast
         result.parse_errors = parser.errors
-    except Exception as e:
-        result.parse_errors.append({'msg': str(e), 'line': 0, 'col': 0})
+    except ParseError as e:
+        result.parse_errors.append({'msg': e.message, 'line': e.line or 0, 'col': e.col or 0, 'phase': 'parser'})
+        return result
+    except PYC64Error as e:
+        result.parse_errors.append({'msg': e.message, 'line': e.line or 0, 'col': e.col or 0, 'phase': e.phase})
         return result
 
     if parser.errors:
@@ -140,21 +147,22 @@ def compile_source(src):
         ast = optimize_ast(ast)
         result.ast = ast
     except Exception as e:
-        pass
+        # Optimization pass error is non-fatal fallback
+        result.ast = ast
 
     # 3. Analyze
     try:
         qk = analyze_ast(ast)
         result.uses_float = qk['usesFloat']
     except Exception as e:
-        pass
+        result.uses_float = False
 
     # 4. BASIC Generation
     try:
         basic_gen = BASICGenerator(ast)
         result.basic_code = basic_gen.generate()
     except Exception as e:
-        pass
+        result.basic_code = ""
 
     result.success = True
     return result

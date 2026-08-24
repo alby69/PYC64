@@ -146,22 +146,23 @@ def compile_source(src):
     try:
         ast = optimize_ast(ast)
         result.ast = ast
-    except Exception:
-        pass
+    except Exception as e:
+        # Optimization pass error is non-fatal fallback
+        result.ast = ast
 
     # 3. Analyze
     try:
         qk = analyze_ast(ast)
         result.uses_float = qk['usesFloat']
-    except Exception:
-        pass
+    except Exception as e:
+        result.uses_float = False
 
     # 4. BASIC Generation
     try:
         basic_gen = BASICGenerator(ast)
         result.basic_code = basic_gen.generate()
-    except Exception:
-        pass
+    except Exception as e:
+        result.basic_code = ""
 
     result.success = True
     return result

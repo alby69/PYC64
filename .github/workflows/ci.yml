@@ -25,7 +25,7 @@ jobs:
 
       - name: Run tests with pytest
         run: |
-          PYTHONPATH=. pytest --cov=pyc64c --cov-report=xml
+          PYTHONPATH=. python -m pytest --cov=pyc64c --cov-report=xml
 
       - name: Build Docker Image
         run: |
